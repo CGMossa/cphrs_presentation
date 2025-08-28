@@ -52,6 +52,7 @@
   // footer-a: [Sun Wenjie / Josiah / Mossa],
   // config-common(new-section-slide-fn: none),
   // Bioconductor
+  header-right: none,
   cph_rs_config_colors,
   config-info(
     // title: [Exploring R and Rust in Bioinformatics],
@@ -61,14 +62,9 @@
     ],
     // subtitle: [Online Developer Forum],
     author: [
-      #pad(left: 10em)[
-        #align(left)[
-        // Sun Wenjie,
+        #align(center)[
         Mossa Merhi Reimert
-        // Josiah Parry\
-        // Hosted by: Lluís Revilla \ (Bioconductor Community Advisory Board)
         ]
-      ]
     ],
     // date: datetime.today(),
     // date: [28#super[th] July 2025],
@@ -157,18 +153,49 @@ extendr is a Rust extension for R.
 - ```r
 variable <- "value"
 ```
-- ```
-  
+- ```r
+set_middle <- function(x = c(1,2,3), value = 99) {
+  value -> x[length(x) %/% 2]
+}
 ```
+Using `set_middle`:
+```r
+> set_middle() # returns invisibly..
+> set_middle() |> print()
+[1] 99
+```
+#pause 
+- Questions?
 
+== R behavior
+
+- R admits copy-on-write semantics. 
+  ```r
+  > x <- c(1,2,3)
+  > .Internal(address(x))
+  <pointer: 0x1226cca88>
+  > x[1] <- 99
+  > .Internal(address(x))
+  <pointer: 0x1226ee678>
+  ```
+// Source: #link("https://docs.julialang.org/en/v1/manual/noteworthy-differences/#Noteworthy-differences-from-R", [Julia's Manual: Noteworthy differences from R
+// ])
+
+- There is no way to modify in-place in R...
 
 == FFI challenges with R
 
-  - R's C-API is built around an opaque pointer type `SEXP`.
+- R's C-API is built around an opaque pointer type `SEXP`.
 
-  - R has a garbage collector
+- R has a garbage collector
 
-  - Errors in R induce `C` longjmps
+- Errors in R induce `C` longjmps 
+
+#pause
+#v(0.33fr)
+- Comments? Questions?
+#v(0.1fr)
+
 
 == extendr is comprised of:
 
@@ -181,13 +208,14 @@ variable <- "value"
   
   #align(center,
     table(
-      inset: 0.6em,
+      inset: 0.4em,
       columns: (auto, auto, auto, auto),
-      align: (left, horizon + center, horizon + center, horizon + center), 
+      align: (left +horizon, horizon + center, horizon + center, horizon + center), 
       table.header[Package][CRAN compatible?][Published][Repository],
       `rextendr`, [#sym.checkmark], [CRAN], [#link("https://github.com/extendr/rextendr", "github/extendr/rextendr")],
-      `extendr-api`,[#sym.checkmark],[crates.io], table.cell(rowspan:3, [#link("https://github.com/extendr/extendr", "github/extendr/extendr")]),
+      `extendr-api`,[#sym.checkmark],[crates.io], table.cell(rowspan:4, [#link("https://github.com/extendr/extendr", "github/extendr/extendr")]),
       `extendr-macros`,[#sym.checkmark],[crates.io], 
+      `extendr-ffi`,[#sym.checkmark], [crates.io],
       `extendr-engine`,[!], [crates.io],
       `libR-sys`, [#sym.checkmark],[crates.io], [#link("https://github.com/extendr/libR-sys", "github/extendr/libR-sys")],
     )
@@ -200,6 +228,44 @@ variable <- "value"
 // - #link("https://extendr.github.io/extendr/extendr_api", "extendr-api") -- the “core” Rust library
 // - #link("https://extendr.github.io/extendr/extendr_ffi", "extendr-ffi") -- bindings to R’s C API
 // - #link("https://extendr.github.io/extendr/extendr_engine", "extendr-engine") -- R engine for embedding R into Rust
+
+
+== Getting Started
+
+#slide[
+  #set text(size: 24pt)
+R users prefer R for everything:
+- `rextendr::rust_source()` and `rextendr::rust_function()` to execute Rust code in R _now_.
+*Happy path*
+- Embed Rust code in an R package
+  ```r
+  usethis::create_package("newPkg")
+  rextendr::use_extendr()
+  ```
+  - Update bindings with: `rextendr::document()` 
+][
+  #set text(size: 21pt)
+  #pad(left: 3em)[
+    ```sh
+    newPkg
+    ├── DESCRIPTION
+    ├── NAMESPACE
+    ├── R
+    │   └── extendr-wrappers.R
+    ├── newPkg.Rproj
+    └── src
+        ├── Makevars
+        ├── Makevars.ucrt
+        ├── Makevars.win
+        ├── entrypoint.c
+        ├── newPkg-win.def
+        └── rust
+            ├── Cargo.toml
+            └── src
+                └── lib.rs
+    ```
+  ]
+]
 
 
 == extendr packages
@@ -220,6 +286,54 @@ variable <- "value"
   #image("images/paste-1.png")
 ]
 
+== Let's dig.. 
+
+// #v(25%)
+
+```rs
+/// @export
+#[extendr]
+fn hello_world() -> &'static str {
+    "Hello world!"
+}
+```
+
+- `#[extendr]` generates a compatible C-wrapper, and an R wrapping rust function
+- `@export`-annotation exports the R wrapper to other R packages!
+
+#pagebreak()
+
+  // #set text(size: 20pt)
+  ```r
+> hello_world()
+[1] "Hello world!"
+> .Internal(inspect(hello_world()))
+@0x000001f379d4d6b0 16 STRSXP g0c1 [] (len=1, tl=0)
+  @0x000001f3747398c8 09 CHARSXP g1c2 [MARK,REF(5),gp=0x60,ATT] [ASCII] [cached] "Hello world!"
+  ```
+  Regular R:
+  ```r
+  > .Internal(inspect("Hello world!"))
+@0x000001f3797b0510 16 STRSXP g0c1 [REF(2)] (len=1, tl=0)
+  @0x000001f3747398c8 09 CHARSXP g1c2 [MARK,REF(6),gp=0x60,ATT] [ASCII] [cached] "Hello world!"
+  ```
+
+== R compatible C wrapper
+
+- Rust side ```rust
+  #[no_mangle]
+  pub extern "C" fn c_function_name() {
+    rust_function_name()
+  }
+```
+- C side:```C
+SEXP c_function_name(void) {
+    return R_NilValue;
+}
+```
+- Generally on the R side: ```r
+  .Call("c_function_name")
+```
 
 
 
