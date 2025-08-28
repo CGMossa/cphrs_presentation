@@ -1,5 +1,7 @@
 #import "@preview/touying:0.6.1": *
 #import "@preview/zebraw:0.5.5": *
+// #import "@preview/fruitify:0.1.1": fruitify
+
 
 // Code blocks customisation
 #show: zebraw-init.with(
@@ -7,6 +9,8 @@
   numbering: false,
   comment-flag: "//"
 )
+
+// #set footnote(numbering: fruitify)
 
 #let cph_rs_config_colors = config-colors(
   // Assumption: cph.rs uses a minimal light theme.
@@ -79,6 +83,9 @@
 // assume it is r when inlines
 #set raw(lang: "r")
 #show raw: set text(font: "Fira Code", ligatures: true)
+#let raw_rust = raw.with(lang: "rust")
+#let raw_r = raw.with(lang: "r")
+#let raw_c = raw.with(lang: "C")
 // #set heading(numbering: numbly("{1}.", default: "1.1"))
 
 #title-slide()
@@ -129,7 +136,11 @@ extendr is a Rust extension for R.
 - Community extensions: Rcpp, cpp11, rJava, reticulate (python), RJulia
 
   #align(center)[#image("blake_extendr_logo_trans.png", height: 5em)]
-  
+
+  #align(center)[
+    #set text(size: 1.9em)
+    Checkout #link("https://extendr.rs/", "extendr.rs")! 
+  ]
 
 == About R 
 
@@ -286,6 +297,59 @@ R users prefer R for everything:
   #image("images/paste-1.png")
 ]
 
+==
+An example of a rust-powered R-package is `{mdl}`.
+
+- Transforms a data-frame into a design/model matrix, that are used within `lm`/`glm`/`glmnet`/etc. 
+
+#[
+  #set text(size: 22pt)
+  ```r
+  > mtcars$cyl <- as.factor(mtcars$cyl)
+  + head(
+  +   mdl::mtrx(mpg ~ ., mtcars)
+  + )
+    (Intercept) cyl6 cyl8 disp  hp drat    wt  qsec vs am gear carb
+  1           1    1    0  160 110 3.90 2.620 16.46  0  1    4    4
+  2           1    1    0  160 110 3.90 2.875 17.02  0  1    4    4
+  3           1    0    0  108  93 3.85 2.320 18.61  1  1    4    1
+  4           1    1    0  258 110 3.08 3.215 19.44  1  0    3    1
+  5           1    0    1  360 175 3.15 3.440 17.02  0  0    3    2
+  6           1    1    0  225 105 2.76 3.460 20.22  1  0    3    1
+  ```
+  #pagebreak()
+]
+#[
+  == Benchmark:
+  // #set text(size: pt)
+  ```r
+  # A tibble: 2 × 4
+    expression                    median `itr/sec` mem_alloc
+    <bch:expr>                     <dbl>     <dbl>     <dbl>
+  1 mdl::mtrx(mpg ~ ., mtcars)       1        10.5      1   
+  2 model.matrix(mpg ~ ., mtcars)   10.8       1        4.40
+  ```
+  #text(size: 20pt, [scaled wrt. best performing])
+]
+
+#pause 
+Overall, between 1.7#sym.times and 11#sym.times faster than R's `model.matrix`.
+
+But there is more.. Performance is not everything.
+
+==
+
+- The rust core of `mdl` is app. 250 LOC
+
+- Parallel processing of variables is implemented (via `rayon`)
+
+- 95% safe code
+
+#pause
+
+#sym.arrow.r Any non-expert maintainer can tweak `mdl`, and if it compiles, it works.
+
+
 == Let's dig.. 
 
 // #v(25%)
@@ -335,145 +399,172 @@ SEXP c_function_name(void) {
   .Call("c_function_name")
 ```
 
+== Data conversions in `#[extendr]`-macro
 
 
-#focus-slide[
-  
-  #quote(block: true)[So long, and thanks for all the fish!]
-
-  ... I'm moving to Jutland
-]
-
-
-== Example: single
-
-#let code = ```rust
-#[extendr]
-fn gh_encode(x: f64, y: f64, length: usize) -> String {
-    let coord = Coord { x, y };
-    encode(coord, length).expect("Failed to encode the geohash")
+```rs
+#[no_mangle]
+pub extern "C" fn c_function_name(arg1: SEXP, arg2: SEXP) -> SEXP {
+  let arg1 = arg1.try_into();
+  let arg2 = arg2.try_into();
+  let rs_return_value = rust_function_name(arg1, arg2);
+  let r_result: SEXP = rs_return_value.try_into();
+  result
 }
 ```
-
-#[
-  #show raw: set text(size: 17pt) 
-  #show raw: set align(horizon)
-  #zebraw(code, highlight-lines: 1)
-  #pagebreak(weak:true)
-  #zebraw(code, highlight-lines: 2)
-  #pagebreak(weak:true)
-  #zebraw(code, highlight-lines: 3)
-  #pagebreak(weak:true)
-  #zebraw(code, highlight-lines: 4)
-]
-
-
-// ``` {.rust code-line-numbers="2|3,4|5|6|7,8|11"}
-#let code = ```rust
-#[extendr]
-fn gh_encode(x: &[f64], y: &[f64], length: usize) -> Vec<String> {
-  x
-    .into_iter() 
-    .zip(y.into_iter()) 
-    .map(|(xi, yi)| { 
-        let coord = Coord { x: xi, y: yi };
-        encode(coord, length)
-            .expect("Failed to encode the geohash")
-    })
-    .collect::<Vec<_>>()
-}
-```
-== Example: vectorize
-#[
-  #show raw: set text(size: 18pt)
-  #for value in ((2,3), (4,5,6,7), (8,11)) {
-    // heading(depth:2)[Example: vectorize]
-    pagebreak(weak:true)
-    zebraw(code, highlight-lines: value)
-  }
-]
-
-== Example: parallelize 
-
-#{
-  show raw: set text(size: 18pt)
-  zebraw(highlight-lines: (6,7),
-  ```rust
-  #[extendr]
-  fn gh_encode(x: &[f64], y: &[f64], length: usize) -> Vec<String> {
-    x
-      .into_iter()
-      .zip(y.into_iter())
-      .par_bridge() // convert into a parallel iterator
-      .with_min_len(1024) // set minimum parallel chunk length
-      .map(|(xi, yi)| {
-          let coord = Coord { x: xi, y: yi };
-          encode(coord, length)
-              .expect("Failed to encode the geohash")
-      })
-      .collect::<Vec<_>>()
-  }
-  ```
-)
-}
-
-= Use case `extendr/mdl`
-
-==
-An example of a rust-powered R-package is `{mdl}`.
-
-- Transforms a data-frame into a design/model matrix, that are used within `lm`/`glm`/`glmnet`/etc. 
-
-#[
-  #set text(size: 22pt)
-  ```r
-  > mtcars$cyl <- as.factor(mtcars$cyl)
-  + head(
-  +   mdl::mtrx(mpg ~ ., mtcars)
-  + )
-    (Intercept) cyl6 cyl8 disp  hp drat    wt  qsec vs am gear carb
-  1           1    1    0  160 110 3.90 2.620 16.46  0  1    4    4
-  2           1    1    0  160 110 3.90 2.875 17.02  0  1    4    4
-  3           1    0    0  108  93 3.85 2.320 18.61  1  1    4    1
-  4           1    1    0  258 110 3.08 3.215 19.44  1  0    3    1
-  5           1    0    1  360 175 3.15 3.440 17.02  0  0    3    2
-  6           1    1    0  225 105 2.76 3.460 20.22  1  0    3    1
-  ```
-  #pagebreak()
-]
-#[
-  == Benchmark:
-  // #set text(size: pt)
-  ```r
-  # A tibble: 2 × 4
-    expression                    median `itr/sec` mem_alloc
-    <bch:expr>                     <dbl>     <dbl>     <dbl>
-  1 mdl::mtrx(mpg ~ ., mtcars)       1        10.5      1   
-  2 model.matrix(mpg ~ ., mtcars)   10.8       1        4.40
-  ```
-  #text(size: 20pt, [scaled wrt. best performing])
-]
 
 #pause 
-Overall, between 1.7#sym.times and 11#sym.times faster than R's `model.matrix`.
 
-But there is more.. Performance is not everything.
+This is a sketch, as we need to..
+- Guard for panics comming from `rust_function`..
+- Protect R allocations done within `rust_function`
+- etc.
 
-// #pagebreak(weak:true)
-==
+== Our goals with extendr
 
-- The rust core of `mdl` is app. 250 LOC
+- Enable the ease of creating rust-based R packages
 
-- Parallel processing of variables is implemented (via `rayon`)
+- Require as little knowledge of R-internals of our users
 
-- 100% safe code
+#pause 
+
+What our time is spent on:
+
+- Fighting CI to ensure that extendr works with all combinations of 
+  ${"R versions"} times ({"OS versions"} union {"emscripten"\/"WASM"})$
+
+- Campaigning for Rust on CRAN and Bioconductor...
 
 #pause
 
-#sym.arrow.r Any non-expert maintainer can tweak `mdl`, and if it compiles, it works.
+*Back to the technical stuff...*
 
-= Roadmap
-==
+== What if an R function panics?
+
+- A call to `Rf_error("error message as c-string")` occurred
+  - Converting rust panics to r errors
+  - Users want to error due to bad input
+  - etc.
+
+A call to Rf_error causes a `longjump`!
+
+== Options
+
+```C
+SEXP R_MakeUnwindCont(void);
+NORET void R_ContinueUnwind(SEXP cont);
+SEXP R_UnwindProtect(
+    SEXP (*fun)(void *data), void *data,
+    void (*cleanfun)(void *data, Rboolean jump),
+    void *cleandata, SEXP cont);
+```
+
+
+
+#footnote([`NORET` means `!` in Rust])
+
+#pagebreak()
+#[
+  #show raw: set text(size: 0.99em)
+```C
+SEXP R_UnwindProtect(
+  SEXP (*fun)(void *data), void *data,
+  void (*cleanfun)(void *data, Rboolean jump),
+  void *cleandata, SEXP cont) {
+  // ... 
+  begincontext(&thiscontext, CTXT_UNWIND, R_NilValue, 
+     R_GlobalEnv, R_BaseEnv, R_NilValue, R_NilValue);
+  if (SETJMP(thiscontext.cjmpbuf)) {
+    jump = TRUE;
+    SETCAR(cont, R_ReturnedValue);
+    unwind_cont_t *u = RAWDATA(CDR(cont));
+    u->jumpmask = thiscontext.jumpmask;
+    u->jumptarget = thiscontext.jumptarget;
+    thiscontext.jumptarget = NULL;
+  } else
+```
+]
+#pagebreak()
+```C 
+  else {
+    result = fun(data);
+    SETCAR(cont, result);
+    jump = FALSE;
+  }
+  endcontext(&thiscontext);
+
+  cleanfun(cleandata, jump);
+  if (jump)
+    R_ContinueUnwind(cont);
+
+  return result;
+}
+```
+
+== This is used for C++ Exceptions
+
+- In the R package `{cpp11}`, see #link("https://cpp11.r-lib.org/articles/FAQ.html#should-i-call-cpp11unwind_protect-manually").
+- And in Rcpp too:
+#[
+  #show raw: set text(size: 12pt)
+```cpp
+struct UnwindData {
+    std::jmp_buf jmpbuf;
+};
+// First jump back to the protected context with a C longjmp because
+// `Rcpp_protected_eval()` is called from C and we can't safely throw
+// exceptions across C frames.
+inline void maybeJump(void* unwind_data, Rboolean jump) {
+    if (jump) {
+        UnwindData* data = static_cast<UnwindData*>(unwind_data);
+        longjmp(data->jmpbuf, 1);
+    }
+}
+inline SEXP unwindProtectUnwrap(void* data) {
+    std::function<SEXP(void)>* callback = (std::function<SEXP(void)>*) data;
+    return (*callback)();
+}
+}} // namespace Rcpp::internal
+namespace Rcpp {
+inline SEXP unwindProtect(SEXP (*callback)(void* data), void* data) {
+    internal::UnwindData unwind_data;
+    Shield<SEXP> token(::R_MakeUnwindCont());
+
+    if (setjmp(unwind_data.jmpbuf)) {
+        // Keep the token protected while unwinding because R code might run
+        // in C++ destructors. Can't use PROTECT() for this because
+        // UNPROTECT() might be called in a destructor, for instance if a
+        // Shield<SEXP> is on the stack.
+        ::R_PreserveObject(token);
+
+        throw LongjumpException(token);
+    }
+    return ::R_UnwindProtect(callback, data,
+                             internal::maybeJump, &unwind_data,
+                             token);
+}
+
+inline SEXP unwindProtect(std::function<SEXP(void)> callback) {
+    return unwindProtect(&internal::unwindProtectUnwrap, &callback);
+}
+```
+]
+
+== My conclusion
+
+We need a way to unwind rust frames, that then allows me to call `R_ContinueUnwind`#footnote([
+```C
+NORET void R_ContinueUnwind(SEXP cont)
+{
+    SEXP retval = CAR(cont);
+    unwind_cont_t *u = RAWDATA(CDR(cont));
+    R_jumpctxt(u->jumptarget, u->jumpmask, retval);
+}
+```
+]). But I cannot find a way to do that #emoji.face.sad
+
+
+== Roadmap
 ===  Main priority: Developers, developers, developers
 - Better support on package repositories like CRAN and Bioconductor
 
@@ -486,49 +577,182 @@ But there is more.. Performance is not everything.
   
 - More maintainers for extendr
 
-#focus-slide()[
-  Thanks for your attention. \
-  #[
-    #set text(size: 15pt)
-    Thanks to Lluís Revilla for organising, hosting, and guiding us.
-  ]
+
+#focus-slide[
+  
+  Thanks for your attention
+
+  #pause 
+
+  #quote(block: true)[So long, and thanks for all the fish!]
+
+  ... I'm moving to Jutland
 ]
 
 
-#focus-slide()[
-  #set align(center)
-  Let's discuss!\ 
-  // #line(stroke: teal)
-  // #rect(fill: rgb("#87b13f"), width: 9em,)
-  #rect(fill: rgb("#87b13f"), width: 9em,radius: 1.234em)
-  Questions?
-]
+// == Example: single
 
-// #matrix-slide(rows: 1, [
-//   #set align(left + top)
-//   R side:
+// #let code = ```rust
+// #[extendr]
+// fn gh_encode(x: f64, y: f64, length: usize) -> String {
+//     let coord = Coord { x, y };
+//     encode(coord, length).expect("Failed to encode the geohash")
+// }
+// ```
+
+// #[
+//   #show raw: set text(size: 17pt) 
+//   #show raw: set align(horizon)
+//   #zebraw(code, highlight-lines: 1)
+//   #pagebreak(weak:true)
+//   #zebraw(code, highlight-lines: 2)
+//   #pagebreak(weak:true)
+//   #zebraw(code, highlight-lines: 3)
+//   #pagebreak(weak:true)
+//   #zebraw(code, highlight-lines: 4)
+// ]
+
+
+// // ``` {.rust code-line-numbers="2|3,4|5|6|7,8|11"}
+// #let code = ```rust
+// #[extendr]
+// fn gh_encode(x: &[f64], y: &[f64], length: usize) -> Vec<String> {
+//   x
+//     .into_iter() 
+//     .zip(y.into_iter()) 
+//     .map(|(xi, yi)| { 
+//         let coord = Coord { x: xi, y: yi };
+//         encode(coord, length)
+//             .expect("Failed to encode the geohash")
+//     })
+//     .collect::<Vec<_>>()
+// }
+// ```
+// == Example: vectorize
+// #[
+//   #show raw: set text(size: 18pt)
+//   #for value in ((2,3), (4,5,6,7), (8,11)) {
+//     // heading(depth:2)[Example: vectorize]
+//     pagebreak(weak:true)
+//     zebraw(code, highlight-lines: value)
+//   }
+// ]
+
+// == Example: parallelize 
+
+// #{
+//   show raw: set text(size: 18pt)
+//   zebraw(highlight-lines: (6,7),
+//   ```rust
+//   #[extendr]
+//   fn gh_encode(x: &[f64], y: &[f64], length: usize) -> Vec<String> {
+//     x
+//       .into_iter()
+//       .zip(y.into_iter())
+//       .par_bridge() // convert into a parallel iterator
+//       .with_min_len(1024) // set minimum parallel chunk length
+//       .map(|(xi, yi)| {
+//           let coord = Coord { x: xi, y: yi };
+//           encode(coord, length)
+//               .expect("Failed to encode the geohash")
+//       })
+//       .collect::<Vec<_>>()
+//   }
+//   ```
+// )
+// }
+
+// = Use case `extendr/mdl`
+
+// ==
+// An example of a rust-powered R-package is `{mdl}`.
+
+// - Transforms a data-frame into a design/model matrix, that are used within `lm`/`glm`/`glmnet`/etc. 
+
+// #[
+//   #set text(size: 22pt)
+//   ```r
+//   > mtcars$cyl <- as.factor(mtcars$cyl)
+//   + head(
+//   +   mdl::mtrx(mpg ~ ., mtcars)
+//   + )
+//     (Intercept) cyl6 cyl8 disp  hp drat    wt  qsec vs am gear carb
+//   1           1    1    0  160 110 3.90 2.620 16.46  0  1    4    4
+//   2           1    1    0  160 110 3.90 2.875 17.02  0  1    4    4
+//   3           1    0    0  108  93 3.85 2.320 18.61  1  1    4    1
+//   4           1    1    0  258 110 3.08 3.215 19.44  1  0    3    1
+//   5           1    0    1  360 175 3.15 3.440 17.02  0  0    3    2
+//   6           1    1    0  225 105 2.76 3.460 20.22  1  0    3    1
+//   ```
+//   #pagebreak()
+// ]
+// #[
+//   == Benchmark:
+//   // #set text(size: pt)
+//   ```r
+//   # A tibble: 2 × 4
+//     expression                    median `itr/sec` mem_alloc
+//     <bch:expr>                     <dbl>     <dbl>     <dbl>
+//   1 mdl::mtrx(mpg ~ ., mtcars)       1        10.5      1   
+//   2 model.matrix(mpg ~ ., mtcars)   10.8       1        4.40
+//   ```
+//   #text(size: 20pt, [scaled wrt. best performing])
+// ]
+
+// #pause 
+// Overall, between 1.7#sym.times and 11#sym.times faster than R's `model.matrix`.
+
+// But there is more.. Performance is not everything.
+
+// // #pagebreak(weak:true)
+// ==
+
+// - The rust core of `mdl` is app. 250 LOC
+
+// - Parallel processing of variables is implemented (via `rayon`)
+
+// - 100% safe code
+
+// #pause
+
+// #sym.arrow.r Any non-expert maintainer can tweak `mdl`, and if it compiles, it works.
+
+// = Roadmap
+
+// #focus-slide()[
+//   #set align(center)
+//   Let's discuss!\ 
+//   // #line(stroke: teal)
+//   // #rect(fill: rgb("#87b13f"), width: 9em,)
+//   #rect(fill: rgb("#87b13f"), width: 9em,radius: 1.234em)
+//   Questions?
+// ]
+
+// // #matrix-slide(rows: 1, [
+// //   #set align(left + top)
+// //   R side:
   
-//   - Memory safe parallel processing
+// //   - Memory safe parallel processing
   
-//   - Async support via `{mirai}`
+// //   - Async support via `{mirai}`
   
-//   - Finish webR support
+// //   - Finish webR support
   
-//   - `{vctrs}` support for rust vectors
-//   // - Add `{vctrs}` style support 
+// //   - `{vctrs}` support for rust vectors
+// //   // - Add `{vctrs}` style support 
   
-// ],[
-//   #set align(left + top)
-//   Rust side:
-//   - "native" arrow support
+// // ],[
+// //   #set align(left + top)
+// //   Rust side:
+// //   - "native" arrow support
   
-//   - Add `nalgebra` support
-//   - WASM and webr support
+// //   - Add `nalgebra` support
+// //   - WASM and webr support
     
-// ],)
+// // ],)
 
 
 
-// On-going efforts
+// // On-going efforts
 
-// - WASM  and webr support
+// // - WASM  and webr support
