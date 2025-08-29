@@ -101,6 +101,8 @@
   Statistician / Veterinary Epidemiologist
   Father of two
   ```
+  #pause
+  Not a computer scientist!
 ]
 
 #focus-slide[
@@ -293,8 +295,11 @@ R users prefer R for everything:
 == 380k downloads and counting
 
 #[
+  As of today (Thursday, August 28th) we have a total of 494284 downloads
   #set align(center + horizon)
-  #image("images/paste-1.png")
+  
+  #image("images/paste-1.png", height:1fr)
+
 ]
 
 ==
@@ -416,7 +421,7 @@ pub extern "C" fn c_function_name(arg1: SEXP, arg2: SEXP) -> SEXP {
 #pause 
 
 This is a sketch, as we need to..
-- Guard for panics comming from `rust_function`..
+- Guard for panics coming from `rust_function`..
 - Protect R allocations done within `rust_function`
 - etc.
 
@@ -433,7 +438,7 @@ What our time is spent on:
 - Fighting CI to ensure that extendr works with all combinations of 
   ${"R versions"} times ({"OS versions"} union {"emscripten"\/"WASM"})$
 
-- Campaigning for Rust on CRAN and Bioconductor...
+- Campaigning for Rust on CRAN and BioConductor...
 
 #pause
 
@@ -446,13 +451,17 @@ What our time is spent on:
   - Users want to error due to bad input
   - etc.
 
-A call to Rf_error causes a `longjump`!
+A call to `Rf_error` causes a `longjump`!
 
 == Options
 
 ```C
 SEXP R_MakeUnwindCont(void);
+```
+```C
 NORET void R_ContinueUnwind(SEXP cont);
+```
+```C
 SEXP R_UnwindProtect(
     SEXP (*fun)(void *data), void *data,
     void (*cleanfun)(void *data, Rboolean jump),
@@ -577,141 +586,30 @@ NORET void R_ContinueUnwind(SEXP cont)
   
 - More maintainers for extendr
 
+== Wanted
+
+- R users that are Rust curious? Come on in!
+
+- Rust library that you want accessible to the R community? Please, join us.
+
+- If you love `procmacro`s, and only want to write proc-macros, we have things!
+
+- If you're only a `rustc`-interested, we need you too!
+
 
 #focus-slide[
   
-  Thanks for your attention
+  Thanks for your attention!
 
   #pause 
 
   #quote(block: true)[So long, and thanks for all the fish!]
 
-  ... I'm moving to Jutland
+  ... I'm moving to #strike([Jutland]) Als
 ]
 
+#show: appendix
 
-// == Example: single
-
-// #let code = ```rust
-// #[extendr]
-// fn gh_encode(x: f64, y: f64, length: usize) -> String {
-//     let coord = Coord { x, y };
-//     encode(coord, length).expect("Failed to encode the geohash")
-// }
-// ```
-
-// #[
-//   #show raw: set text(size: 17pt) 
-//   #show raw: set align(horizon)
-//   #zebraw(code, highlight-lines: 1)
-//   #pagebreak(weak:true)
-//   #zebraw(code, highlight-lines: 2)
-//   #pagebreak(weak:true)
-//   #zebraw(code, highlight-lines: 3)
-//   #pagebreak(weak:true)
-//   #zebraw(code, highlight-lines: 4)
-// ]
-
-
-// // ``` {.rust code-line-numbers="2|3,4|5|6|7,8|11"}
-// #let code = ```rust
-// #[extendr]
-// fn gh_encode(x: &[f64], y: &[f64], length: usize) -> Vec<String> {
-//   x
-//     .into_iter() 
-//     .zip(y.into_iter()) 
-//     .map(|(xi, yi)| { 
-//         let coord = Coord { x: xi, y: yi };
-//         encode(coord, length)
-//             .expect("Failed to encode the geohash")
-//     })
-//     .collect::<Vec<_>>()
-// }
-// ```
-// == Example: vectorize
-// #[
-//   #show raw: set text(size: 18pt)
-//   #for value in ((2,3), (4,5,6,7), (8,11)) {
-//     // heading(depth:2)[Example: vectorize]
-//     pagebreak(weak:true)
-//     zebraw(code, highlight-lines: value)
-//   }
-// ]
-
-// == Example: parallelize 
-
-// #{
-//   show raw: set text(size: 18pt)
-//   zebraw(highlight-lines: (6,7),
-//   ```rust
-//   #[extendr]
-//   fn gh_encode(x: &[f64], y: &[f64], length: usize) -> Vec<String> {
-//     x
-//       .into_iter()
-//       .zip(y.into_iter())
-//       .par_bridge() // convert into a parallel iterator
-//       .with_min_len(1024) // set minimum parallel chunk length
-//       .map(|(xi, yi)| {
-//           let coord = Coord { x: xi, y: yi };
-//           encode(coord, length)
-//               .expect("Failed to encode the geohash")
-//       })
-//       .collect::<Vec<_>>()
-//   }
-//   ```
-// )
-// }
-
-// = Use case `extendr/mdl`
-
-// ==
-// An example of a rust-powered R-package is `{mdl}`.
-
-// - Transforms a data-frame into a design/model matrix, that are used within `lm`/`glm`/`glmnet`/etc. 
-
-// #[
-//   #set text(size: 22pt)
-//   ```r
-//   > mtcars$cyl <- as.factor(mtcars$cyl)
-//   + head(
-//   +   mdl::mtrx(mpg ~ ., mtcars)
-//   + )
-//     (Intercept) cyl6 cyl8 disp  hp drat    wt  qsec vs am gear carb
-//   1           1    1    0  160 110 3.90 2.620 16.46  0  1    4    4
-//   2           1    1    0  160 110 3.90 2.875 17.02  0  1    4    4
-//   3           1    0    0  108  93 3.85 2.320 18.61  1  1    4    1
-//   4           1    1    0  258 110 3.08 3.215 19.44  1  0    3    1
-//   5           1    0    1  360 175 3.15 3.440 17.02  0  0    3    2
-//   6           1    1    0  225 105 2.76 3.460 20.22  1  0    3    1
-//   ```
-//   #pagebreak()
-// ]
-// #[
-//   == Benchmark:
-//   // #set text(size: pt)
-//   ```r
-//   # A tibble: 2 × 4
-//     expression                    median `itr/sec` mem_alloc
-//     <bch:expr>                     <dbl>     <dbl>     <dbl>
-//   1 mdl::mtrx(mpg ~ ., mtcars)       1        10.5      1   
-//   2 model.matrix(mpg ~ ., mtcars)   10.8       1        4.40
-//   ```
-//   #text(size: 20pt, [scaled wrt. best performing])
-// ]
-
-// #pause 
-// Overall, between 1.7#sym.times and 11#sym.times faster than R's `model.matrix`.
-
-// But there is more.. Performance is not everything.
-
-// // #pagebreak(weak:true)
-// ==
-
-// - The rust core of `mdl` is app. 250 LOC
-
-// - Parallel processing of variables is implemented (via `rayon`)
-
-// - 100% safe code
 
 // #pause
 
@@ -756,3 +654,64 @@ NORET void R_ContinueUnwind(SEXP cont)
 // // On-going efforts
 
 // // - WASM  and webr support
+
+
+== Examples of `extendr-api` code
+#slide[
+=== Passing Rust data to R
+
+```rs
+#[derive(Debug)]
+#[extendr]
+struct Person {
+    name: String,
+    age: u32,
+}
+```
+]
+
+#slide()[
+#set text(size: 21pt)
+```rust
+#[extendr]
+impl Person {
+    fn new() -> Self {
+        Self { 
+        name: "".to_string(), 
+        age: 0 }
+    }
+    fn name(&self) -> &str {
+        self.name.as_str()
+    }
+    fn set_name(&mut self, name: &str) {
+        self.name = name.to_string();
+    }
+  }
+```
+][
+  === On the R side
+  ```r
+  > person <- Person$new()
+  > person$set_name("Jeff")
+  > person
+  <pointer: 0x105c04530>
+  attr(,"class")
+  [1] "Person" 
+  ```
+]
+
+=== Passing R owned Rust types
+
+```rs
+#[extendr]
+impl Person {
+    fn older<'a>(&'a self, other: &'a Self) -> &'a Self {
+        if self.age > other.age {
+            self
+        } else {
+            other
+        }
+    }
+}
+```
+Usage: Support for method-chaining in R
